@@ -4,11 +4,11 @@ on:
     inputs:
       KERNEL_REPO:
         description: 'Kernel URL repository'
-        default: 'https://github.com/arazy79/android_kernel_asus_sdm660-4.19_rsuntk'
+        default: 'https://github.com/arazy79/android_kernel_asus_sdm660-4.19_a16'
         required: true
       BRANCH:
         description: 'Kernel branch'
-        default: 'master'
+        default: 'lineage-23.2'
         required: true
       DEVICE_TARGET:
         description: 'Device to build'
@@ -25,7 +25,7 @@ on:
       KSU_BRANCH:
         description: 'KernelSU branch'
         required: true
-        default: 'master'
+        default: 'lineage-23.2'
       UPDATE_TOOLCHAIN:
         description: 'Update toolchain cache'
         type: boolean
