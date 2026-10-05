@@ -137,15 +137,6 @@ jobs:
           if [[ "$KSU_ENABLED" == "true" && "$KSU_URL" != "NULL" ]]; then
             echo "KernelSU: ON"
             curl -LSs "$KSU_URL" | bash -s "$KSU_BRANCH"
-
-            # Some kernel trees don't ship vendor/extra/ksu.config, create it if missing
-            KSU_CFG="arch/arm64/configs/vendor/extra/ksu.config"
-            if [ ! -f "$KSU_CFG" ]; then
-              echo "ksu.config not found in tree, creating $KSU_CFG"
-              mkdir -p "$(dirname "$KSU_CFG")"
-              echo "CONFIG_KSU=y" > "$KSU_CFG"
-            fi
-
             case " $EXTRA_CONFIG " in
               *"vendor/extra/ksu.config"*) ;;
               *) export EXTRA_CONFIG="vendor/extra/ksu.config $EXTRA_CONFIG" ;;
@@ -153,19 +144,10 @@ jobs:
           else
             echo "KernelSU: OFF"
             export EXTRA_CONFIG="${EXTRA_CONFIG//vendor\/extra\/ksu.config/}"
-            DEFCONFIG_FILE="arch/arm64/configs/vendor/asus/${DEVICE_TARGET}_defconfig"
-            sed -i '/^CONFIG_KSU/d;/^# CONFIG_KSU/d' "$DEFCONFIG_FILE"
-            echo "# CONFIG_KSU is not set" >> "$DEFCONFIG_FILE"
           fi
 
           bash ../build.sh
         fi
-
-    - name: Verify KSU config
-      if: inputs.UPDATE_TOOLCHAIN != 'true'
-      run: |
-        echo "=== CONFIG_KSU in out/.config ==="
-        grep -i "KSU" kernel_root/out/.config || echo "no KSU entries in .config"
 
     - name: Upload kernel artifacts
       uses: actions/upload-artifact@v5
