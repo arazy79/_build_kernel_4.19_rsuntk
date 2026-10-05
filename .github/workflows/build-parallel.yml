@@ -1,0 +1,43 @@
+name: Build Kernel (parallel)
+on:
+  workflow_dispatch:
+    inputs:
+      KERNEL_REPO:
+        description: 'Kernel URL repository'
+        default: 'https://github.com/rsuntk/android_kernel_asus_sdm660-4.19'
+        required: true
+      BRANCH:
+        description: 'Kernel branch'
+        default: 'master'
+        required: true
+      KSU:
+        description: 'Add KernelSU support'
+        default: "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh"
+      KSU_BRANCH:
+        description: 'KernelSU branch'
+        required: true
+        default: 'master'
+      EXTRA_CONFIG:
+        description: 'Use Extra defconfig'
+        default: 'vendor/extra/ksu.config vendor/extra/release.config'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        device: [X01BD, X00TD]
+      fail-fast: false
+    uses: ./.github/workflows/build-core.yml
+    secrets: inherit
+    with:
+      KERNEL_REPO: ${{ github.event.inputs.KERNEL_REPO }}
+      BRANCH: ${{ github.event.inputs.BRANCH }}
+      DEVICE_TARGET: ${{ matrix.device }}
+      KSU: ${{ github.event.inputs.KSU }}
+      KSU_BRANCH: ${{ github.event.inputs.KSU_BRANCH }}
+      UPDATE_TOOLCHAIN: false
+      USE_GCC: false
+      KCFLAGS_W: false
+      EXTRA_CONFIG: ${{ github.event.inputs.EXTRA_CONFIG }}
+      NEED_UPLOAD: true
+

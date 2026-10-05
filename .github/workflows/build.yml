@@ -1,0 +1,60 @@
+name: Build Kernel
+on:
+  workflow_dispatch:
+    inputs:
+      KERNEL_REPO:
+        description: 'Kernel URL repository'
+        default: 'https://github.com/arazy79/android_kernel_asus_sdm660-4.19_rsuntk'
+        required: true
+      BRANCH:
+        description: 'Kernel branch'
+        default: 'master'
+        required: true
+      DEVICE_TARGET:
+        description: 'Device to build'
+        default: 'X00TD'
+        type: choice
+        options: [X01BD, X00TD]
+      ENABLE_KSU:
+        description: 'Build with KernelSU'
+        type: boolean
+        default: true
+      KSU:
+        description: 'Add KernelSU support'
+        default: "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh"
+      KSU_BRANCH:
+        description: 'KernelSU branch'
+        required: true
+        default: 'master'
+      UPDATE_TOOLCHAIN:
+        description: 'Update toolchain cache'
+        type: boolean
+        default: false
+      USE_GCC:
+        description: 'Use GCC for compilation instead of LLVM'
+        type: boolean
+        default: false
+      KCFLAGS_W:
+        description: 'Enable KCFLAGS=-w'
+        type: boolean
+        default: false
+      EXTRA_CONFIG:
+        description: 'Use Extra defconfig'
+        default: 'vendor/extra/disable_thermal.config'
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-core.yml
+    secrets: inherit
+    with:
+      KERNEL_REPO: ${{ github.event.inputs.KERNEL_REPO }}
+      BRANCH: ${{ github.event.inputs.BRANCH }}
+      DEVICE_TARGET: ${{ github.event.inputs.DEVICE_TARGET }}
+      ENABLE_KSU: ${{ github.event.inputs.ENABLE_KSU == 'true' }}
+      KSU: ${{ github.event.inputs.KSU }}
+      KSU_BRANCH: ${{ github.event.inputs.KSU_BRANCH }}
+      UPDATE_TOOLCHAIN: ${{ github.event.inputs.UPDATE_TOOLCHAIN == 'true' }}
+      USE_GCC: ${{ github.event.inputs.USE_GCC == 'true' }}
+      KCFLAGS_W: ${{ github.event.inputs.KCFLAGS_W == 'true' }}
+      EXTRA_CONFIG: ${{ github.event.inputs.EXTRA_CONFIG }}
+      NEED_UPLOAD: false
