@@ -25,7 +25,7 @@ on:
       KSU_BRANCH:
         description: 'KernelSU branch'
         required: true
-        default: 'lineage-23.2'
+        default: 'master'
       UPDATE_TOOLCHAIN:
         description: 'Update toolchain cache'
         type: boolean
