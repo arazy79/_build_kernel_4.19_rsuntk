@@ -21,11 +21,11 @@ on:
         default: true
       KSU:
         description: 'Add KernelSU support'
-        default: "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh"
+        default: "https://github.com/prabhatkrmishra/KernelSU-Next/blob/legacy-4.19/kernel/setup.sh"
       KSU_BRANCH:
         description: 'KernelSU branch'
         required: true
-        default: 'master'
+        default: 'legacy-4.19'
       UPDATE_TOOLCHAIN:
         description: 'Update toolchain cache'
         type: boolean
