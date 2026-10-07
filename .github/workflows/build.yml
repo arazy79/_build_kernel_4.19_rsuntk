@@ -21,11 +21,21 @@ on:
         default: true
       KSU:
         description: 'Add KernelSU support'
-        default: "https://raw.githubusercontent.com/prabhatkrmishra/KernelSU-Next/refs/heads/legacy-4.19/kernel/setup.sh"
+        default: "https://raw.githubusercontent.com/rsuntk/KernelSU/refs/heads/susfs-rksu-master/kernel/setup.sh"
       KSU_BRANCH:
         description: 'KernelSU branch'
         required: true
-        default: 'legacy-4.19'
+        default: 'susfs-rksu-master'
+      ENABLE_SUSFS:
+        description: 'Add SUSFS (needs KernelSU enabled)'
+        type: boolean
+        default: false
+      SUSFS_REPO:
+        description: 'SUSFS repository'
+        default: 'https://gitlab.com/simonpunk/susfs4ksu.git'
+      SUSFS_BRANCH:
+        description: 'SUSFS branch'
+        default: 'kernel-4.19'
       UPDATE_TOOLCHAIN:
         description: 'Update toolchain cache'
         type: boolean
@@ -53,6 +63,9 @@ jobs:
       ENABLE_KSU: ${{ github.event.inputs.ENABLE_KSU == 'true' }}
       KSU: ${{ github.event.inputs.KSU }}
       KSU_BRANCH: ${{ github.event.inputs.KSU_BRANCH }}
+      ENABLE_SUSFS: ${{ github.event.inputs.ENABLE_SUSFS == 'true' }}
+      SUSFS_REPO: ${{ github.event.inputs.SUSFS_REPO }}
+      SUSFS_BRANCH: ${{ github.event.inputs.SUSFS_BRANCH }}
       UPDATE_TOOLCHAIN: ${{ github.event.inputs.UPDATE_TOOLCHAIN == 'true' }}
       USE_GCC: ${{ github.event.inputs.USE_GCC == 'true' }}
       KCFLAGS_W: ${{ github.event.inputs.KCFLAGS_W == 'true' }}
