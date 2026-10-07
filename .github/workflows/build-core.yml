@@ -142,6 +142,13 @@ jobs:
         SUSFS_REPO: ${{ inputs.SUSFS_REPO }}
         SUSFS_BRANCH: ${{ inputs.SUSFS_BRANCH }}
       run: |
+        dump_rej() {
+          for f in $(find . -name '*.rej'); do
+            echo "=============== $f"
+            cat "$f"
+          done
+        }
+
         if [[ "${{ inputs.UPDATE_TOOLCHAIN }}" != "true" ]]; then
           cd kernel_root
           if [ ! -d ~/.ccache ]; then
@@ -186,7 +193,7 @@ jobs:
               else
                 patch -p1 --no-backup-if-mismatch < "$HOOK_PATCH" || {
                   echo "::error::Manual hook patch failed, rejected hunks:"
-                  find . -name '*.rej'
+                  dump_rej
                   exit 1
                 }
               fi
@@ -213,7 +220,7 @@ jobs:
                 cp -v $SUSFS_PATCHES/include/linux/* include/linux/
                 patch -p1 --no-backup-if-mismatch < $SUSFS_PATCHES/50_add_susfs_in_kernel-4.19.patch || {
                   echo "::error::Kernel SUSFS patch failed, rejected hunks:"
-                  find . -name '*.rej'
+                  dump_rej
                   exit 1
                 }
               fi
@@ -226,7 +233,7 @@ jobs:
                   cd "$KSU_DIR"
                   patch -p1 --no-backup-if-mismatch < ../$SUSFS_PATCHES/KernelSU/10_enable_susfs_for_ksu.patch || {
                     echo "::error::KSU SUSFS patch failed, rejected hunks:"
-                    find . -name '*.rej'
+                    dump_rej
                     exit 1
                   }
                 )
@@ -264,6 +271,15 @@ jobs:
 
           bash ../build.sh
         fi
+
+    - name: Upload patch rejects
+      if: failure()
+      uses: actions/upload-artifact@v5
+      with:
+        name: patch-rejects
+        path: kernel_root/**/*.rej
+        if-no-files-found: ignore
+        retention-days: 3
 
     - name: Upload kernel artifacts
       uses: actions/upload-artifact@v5
