@@ -21,7 +21,7 @@ on:
         default: true
       KSU:
         description: 'Add KernelSU support'
-        default: "https://github.com/prabhatkrmishra/KernelSU-Next/blob/legacy-4.19/kernel/setup.sh"
+        default: "https://raw.githubusercontent.com/prabhatkrmishra/KernelSU-Next/refs/heads/legacy-4.19/kernel/setup.sh"
       KSU_BRANCH:
         description: 'KernelSU branch'
         required: true
