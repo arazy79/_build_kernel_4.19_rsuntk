@@ -4,7 +4,7 @@ on:
     inputs:
       KERNEL_REPO:
         description: 'Kernel URL repository'
-        default: 'https://github.com/arazy79/android-kernel-4.19-oprek'
+        default: 'https://github.com/arazy79/4.19-uji-coba'
         required: true
       BRANCH:
         description: 'Kernel branch'
