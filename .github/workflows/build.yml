@@ -4,7 +4,7 @@ on:
     inputs:
       KERNEL_REPO:
         description: 'Kernel URL repository'
-        default: 'https://github.com/arazy79/android_kernel_asus_sdm660_4.19_a16x'
+        default: 'https://github.com/arazy79/razy79/android-kernel-tes-4.19'
         required: true
       BRANCH:
         description: 'Kernel branch'
