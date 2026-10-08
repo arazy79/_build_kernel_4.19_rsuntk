@@ -21,11 +21,11 @@ on:
         default: true
       KSU:
         description: 'Add KernelSU support'
-        default: "https://raw.githubusercontent.com/rsuntk/KernelSU/refs/heads/susfs-rksu-master/kernel/setup.sh"
+        default: "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh"
       KSU_BRANCH:
         description: 'KernelSU branch'
         required: true
-        default: 'susfs-rksu-master'
+        default: 'master'
       ENABLE_SUSFS:
         description: 'Add SUSFS (needs KernelSU enabled)'
         type: boolean
