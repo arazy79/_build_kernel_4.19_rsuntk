@@ -11,6 +11,11 @@ on:
       DEVICE_TARGET:
         description: 'Device to build'
         type: string
+      # >>> INPUT CUSTOM ARTIFACT <<<
+      CUSTOM_ARTIFACT_NAME:
+        description: 'Custom Artifact Name'
+        type: string
+        default: ''
       ENABLE_KSU:
         description: 'Enable KernelSU'
         type: boolean
@@ -284,7 +289,7 @@ jobs:
     - name: Upload kernel artifacts
       uses: actions/upload-artifact@v5
       with:
-        name: Kernel-${{ steps.buildKernel.outputs.buildDetails }}
+        name: ${{ inputs.CUSTOM_ARTIFACT_NAME != '' && inputs.CUSTOM_ARTIFACT_NAME || format('Kernel-{0}', steps.buildKernel.outputs.buildDetails) }}
         path: |
           kernel_root/out/arch/arm64/boot/Image.gz-dtb
           kernel_root/out/.config
@@ -293,6 +298,7 @@ jobs:
     - name: Upload AnyKernel3 artifacts
       uses: actions/upload-artifact@v5
       with:
-        name: AK3-${{ steps.buildKernel.outputs.buildDetails }}
-        path: kernel_root/AnyKernel3/*
+        name: ${{ inputs.CUSTOM_ARTIFACT_NAME != '' && format('{0}-AK3', inputs.CUSTOM_ARTIFACT_NAME) || format('AK3-{0}', steps.buildKernel.outputs.buildDetails) }}
+        path: |
+          kernel_root/AnyKernel3/*
         retention-days: 5
