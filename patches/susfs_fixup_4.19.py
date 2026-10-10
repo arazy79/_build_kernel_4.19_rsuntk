@@ -9,7 +9,7 @@ Idempotent: safe to run more than once.
 Usage:
   python3 susfs_fixup_4.19.py susfs   (default) finish the SUSFS kernel patch
   python3 susfs_fixup_4.19.py hooks   finish the KSU manual hook patch
-                                      (fs/exec.c, drivers/input/input.c)
+                                      (fs/exec.c, fs/open.c, drivers/input/input.c)
 """
 import os
 import re
@@ -50,6 +50,26 @@ def edit(path, old, new, marker, what):
     print("[ok]   %s: %s" % (path, what))
 
 
+
+
+def edit_re_any(path, variants, marker, what):
+    """variants: list of (pattern, repl); the first one that matches wins."""
+    if not os.path.exists(path):
+        print("[FAIL] %s: file not found (%s)" % (path, what))
+        FAILED.append(path)
+        return
+    text = read(path)
+    if marker in text:
+        print("[skip] %s: %s already present" % (path, what))
+        return
+    for pattern, repl in variants:
+        new, count = re.subn(pattern, repl, text, count=1, flags=re.S)
+        if count == 1:
+            write(path, new)
+            print("[ok]   %s: %s" % (path, what))
+            return
+    print("[FAIL] %s: %s: no known code layout matched" % (path, what))
+    FAILED.append(path)
 
 
 def edit_re(path, pattern, repl, marker, what):
@@ -134,21 +154,14 @@ def fix_susfs():
     )
 
     # ----------------------------------------------------------- task_mmu.c
-    edit(
+    edit_re(
         "fs/proc/task_mmu.c",
-        lines(
-            "#include <linux/ctype.h>",
-            "",
-            "#include <asm/elf.h>",
-        ),
-        lines(
-            "#include <linux/ctype.h>",
+        r"(#include <asm/)",
+        lambda m: lines(
             "#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP)",
             "#include <linux/susfs_def.h>",
             "#endif",
-            "",
-            "#include <asm/elf.h>",
-        ),
+        ).rstrip("\n") + "\n" + m.group(1),
         "linux/susfs_def.h",
         "susfs_def.h include",
     )
@@ -316,19 +329,56 @@ def fix_hooks():
         "extern bool ksu_execveat_hook",
         "execveat extern declarations",
     )
-    edit_re(
+    EXEC_BLOCK = lines(
+        "#ifdef CONFIG_KSU",
+        "\tif (unlikely(ksu_execveat_hook))",
+        "\t\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);",
+        "\telse",
+        "\t\tksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);",
+        "#endif",
+    )
+    edit_re_any(
         "fs/exec.c",
-        r"(int flags\)\n\{\n)\n?(\treturn __do_execve_file\(fd, filename, argv, envp, flags, NULL\);)",
-        lambda m: m.group(1) + lines(
-            "#ifdef CONFIG_KSU",
-            "\tif (unlikely(ksu_execveat_hook))",
-            "\t\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);",
-            "\telse",
-            "\t\tksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);",
-            "#endif",
-        ).rstrip("\n") + "\n" + m.group(2),
+        [
+            # layout A: thin wrapper around __do_execve_file()
+            (
+                r"(int flags\)\n\{\n)\n?(\treturn __do_execve_file\(fd, filename, argv, envp, flags, NULL\);)",
+                lambda m: m.group(1) + EXEC_BLOCK + m.group(2),
+            ),
+            # layout B: full body, hook goes after the local declarations
+            (
+                r"(static int do_execveat_common\(int fd, struct filename \*filename,\n[^{]*\{\n(?:\t[^\n]*;\n)+)\n?(\tif \(IS_ERR\(filename\)\))",
+                lambda m: m.group(1) + "\n" + EXEC_BLOCK + m.group(2),
+            ),
+        ],
         "ksu_handle_execveat(&fd, &filename, &argv",
         "execveat hook in do_execveat_common",
+    )
+
+    # fs/open.c: do_faccessat (also handles the variant with 'struct filename *kname;' and braces)
+    edit(
+        "fs/open.c",
+        "long do_faccessat(int dfd, const char __user *filename, int mode)\n",
+        lines(
+            "#ifdef CONFIG_KSU",
+            "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,",
+            "\t\t\t int *flags);",
+            "#endif",
+            "long do_faccessat(int dfd, const char __user *filename, int mode)",
+        ),
+        "extern int ksu_handle_faccessat",
+        "faccessat extern declaration",
+    )
+    edit_re(
+        "fs/open.c",
+        r"(long do_faccessat\(int dfd, const char __user \*filename, int mode\)\n\{\n(?:\t[^\n]*;\n)+)\n?(\tif \(mode & ~S_IRWXO\))",
+        lambda m: m.group(1) + "\n" + lines(
+            "#ifdef CONFIG_KSU",
+            "\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);",
+            "#endif",
+        ) + m.group(2),
+        "ksu_handle_faccessat(&dfd",
+        "faccessat hook in do_faccessat",
     )
 
     # drivers/input/input.c: tolerant to "int disposition = ..." split in two statements
@@ -367,6 +417,7 @@ EXPECTED_SUSFS_REJ = {
 }
 EXPECTED_HOOKS_REJ = {
     "./fs/exec.c.rej",
+    "./fs/open.c.rej",
     "./drivers/input/input.c.rej",
 }
 
