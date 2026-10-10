@@ -1,0 +1,85 @@
+name: Build Kernel
+on:
+  workflow_dispatch:
+    inputs:
+      KERNEL_REPO:
+        description: 'Kernel URL repository'
+        default: 'https://github.com/arazy79/android-kernel-tes-4.19'
+        required: true
+      BRANCH:
+        description: 'Kernel branch'
+        default: 'lineage-23.2'
+        required: true
+      DEVICE_TARGET:
+        description: 'Device to build'
+        default: 'X00TD'
+        type: choice
+        options: [X01BD, X00TD]
+      
+      # >>> INPUT BARU: CUSTOM ARTIFACT NAME <<<
+      CUSTOM_ARTIFACT_NAME:
+        description: 'Nama Custom Artifact (Kosongkan untuk pakai default)'
+        required: false
+        type: string
+      
+      ENABLE_KSU:
+        description: 'Build with KernelSU'
+        type: boolean
+        default: true
+      KSU:
+        description: 'Add KernelSU support'
+        default: "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh"
+      KSU_BRANCH:
+        description: 'KernelSU branch'
+        required: true
+        default: 'master'
+      ENABLE_SUSFS:
+        description: 'Add SUSFS (needs KernelSU enabled)'
+        type: boolean
+        default: false
+      SUSFS_REPO:
+        description: 'SUSFS repository'
+        default: 'https://gitlab.com/simonpunk/susfs4ksu.git'
+      SUSFS_BRANCH:
+        description: 'SUSFS branch'
+        default: 'kernel-4.19'
+      UPDATE_TOOLCHAIN:
+        description: 'Update toolchain cache'
+        type: boolean
+        default: false
+      USE_GCC:
+        description: 'Use GCC for compilation instead of LLVM'
+        type: boolean
+        default: false
+      KCFLAGS_W:
+        description: 'Enable KCFLAGS=-w'
+        type: boolean
+        default: false
+      EXTRA_CONFIG:
+        description: 'Use Extra defconfig'
+        default: 'vendor/extra/disable_thermal.config'
+
+jobs:
+  build:
+    # PAKAI TITIK (./) AGAR MEMANGGIL FILE LOKAL DI BRANCH YANG SAMA
+    uses: ./.github/workflows/build-core.yml
+    secrets: inherit
+    with:
+      KERNEL_REPO: ${{ github.event.inputs.KERNEL_REPO }}
+      BRANCH: ${{ github.event.inputs.BRANCH }}
+      DEVICE_TARGET: ${{ github.event.inputs.DEVICE_TARGET }}
+      
+      # >>> OPER INPUT CUSTOM ARTIFACT KE CORE <<<
+      CUSTOM_ARTIFACT_NAME: ${{ github.event.inputs.CUSTOM_ARTIFACT_NAME }}
+      
+      ENABLE_KSU: ${{ github.event.inputs.ENABLE_KSU == 'true' }}
+      KSU: ${{ github.event.inputs.KSU }}
+      KSU_BRANCH: ${{ github.event.inputs.KSU_BRANCH }}
+      ENABLE_SUSFS: ${{ github.event.inputs.ENABLE_SUSFS == 'true' }}
+      SUSFS_REPO: ${{ github.event.inputs.SUSFS_REPO }}
+      SUSFS_BRANCH: ${{ github.event.inputs.SUSFS_BRANCH }}
+      UPDATE_TOOLCHAIN: ${{ github.event.inputs.UPDATE_TOOLCHAIN == 'true' }}
+      USE_GCC: ${{ github.event.inputs.USE_GCC == 'true' }}
+      KCFLAGS_W: ${{ github.event.inputs.KCFLAGS_W == 'true' }}
+      EXTRA_CONFIG: ${{ github.event.inputs.EXTRA_CONFIG }}
+      NEED_UPLOAD: false
