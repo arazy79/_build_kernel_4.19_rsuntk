@@ -11,11 +11,6 @@ on:
       DEVICE_TARGET:
         description: 'Device to build'
         type: string
-      # >>> INPUT CUSTOM ARTIFACT <<<
-      CUSTOM_ARTIFACT_NAME:
-        description: 'Custom Artifact Name'
-        type: string
-        default: ''
       ENABLE_KSU:
         description: 'Enable KernelSU'
         type: boolean
@@ -190,20 +185,44 @@ jobs:
             fi
             echo "KSU checked out: $KSU_BRANCH ($CURRENT)"
 
-            # Manual hooks (needed for non-GKI 4.19)
+            # Tree-specific fixups for patch hunks that do not apply cleanly
+            FIXUP="$GITHUB_WORKSPACE/patches/susfs_fixup_4.19.py"
+
+            # Manual hooks (needed for non-GKI 4.19): local file first, else download from rksuorg
             HOOK_PATCH="$GITHUB_WORKSPACE/patches/ksu_manual_hooks_4.19.patch"
-            if [ -f "$HOOK_PATCH" ]; then
-              if patch -p1 -R --dry-run -s < "$HOOK_PATCH" > /dev/null 2>&1; then
-                echo "Manual hooks already applied, skipping"
-              else
-                patch -p1 --no-backup-if-mismatch < "$HOOK_PATCH" || {
-                  echo "::error::Manual hook patch failed, rejected hunks:"
-                  dump_rej
-                  exit 1
-                }
-              fi
+            HOOK_PATCH_URL="https://raw.githubusercontent.com/rksuorg/kernel_patches/refs/heads/master/manual_hook/kernel-4.19_5.4.patch"
+            if [ ! -f "$HOOK_PATCH" ]; then
+              echo "Local hook patch not found, downloading from rksuorg/kernel_patches"
+              curl -fLSs "$HOOK_PATCH_URL" -o /tmp/ksu_manual_hooks.patch || {
+                echo "::error::Failed to download manual hook patch"
+                exit 1
+              }
+              HOOK_PATCH=/tmp/ksu_manual_hooks.patch
+            fi
+
+            # Older KSU branches (prctl supercall) have no ksu_handle_sys_reboot: drop the reboot.c hook
+            if grep -rqs "ksu_handle_sys_reboot" "$KSU_DIR"; then
+              echo "KSU provides ksu_handle_sys_reboot, keeping kernel/reboot.c hook"
             else
-              echo "::warning::$HOOK_PATCH not found, building without manual hooks"
+              echo "KSU has no ksu_handle_sys_reboot, dropping kernel/reboot.c hook"
+              awk 'BEGIN{skip=0} /^diff --git /{skip=($0 ~ /kernel\/reboot\.c/)} !skip{print}' "$HOOK_PATCH" > /tmp/ksu_hooks_filtered.patch
+              HOOK_PATCH=/tmp/ksu_hooks_filtered.patch
+            fi
+
+            if patch -p1 -R --dry-run -s < "$HOOK_PATCH" > /dev/null 2>&1; then
+              echo "Manual hooks already applied, skipping"
+            else
+              patch -p1 --no-backup-if-mismatch < "$HOOK_PATCH" || echo "::warning::Manual hook patch had rejected hunks, running fixup"
+              if [ ! -f "$FIXUP" ]; then
+                echo "::error::$FIXUP not found"
+                dump_rej
+                exit 1
+              fi
+              python3 "$FIXUP" hooks || {
+                echo "::error::Manual hook fixup failed, remaining rejected hunks:"
+                dump_rej
+                exit 1
+              }
             fi
             printf '%s\n' 'CONFIG_KSU_MANUAL_HOOK=y' > arch/arm64/configs/vendor/extra/ksu_hook.config
             case " $EXTRA_CONFIG " in
@@ -217,17 +236,30 @@ jobs:
               git clone --depth=1 --single-branch -b "$SUSFS_BRANCH" "$SUSFS_REPO" ../susfs4ksu
               SUSFS_PATCHES=../susfs4ksu/kernel_patches
 
-              # 1) Kernel side: copy susfs sources + apply kernel patch
+              # 1) Kernel side: copy susfs sources + apply kernel patch + tree-specific fixup
               if [ -f fs/susfs.c ]; then
                 echo "fs/susfs.c already exists, skipping kernel-side SUSFS patch"
               else
                 cp -v $SUSFS_PATCHES/fs/* fs/
                 cp -v $SUSFS_PATCHES/include/linux/* include/linux/
-                patch -p1 --no-backup-if-mismatch < $SUSFS_PATCHES/50_add_susfs_in_kernel-4.19.patch || {
-                  echo "::error::Kernel SUSFS patch failed, rejected hunks:"
+                patch -p1 --no-backup-if-mismatch < $SUSFS_PATCHES/50_add_susfs_in_kernel-4.19.patch || echo "::warning::SUSFS kernel patch had rejected hunks, running fixup"
+                if [ ! -f "$FIXUP" ]; then
+                  echo "::error::$FIXUP not found"
+                  dump_rej
+                  exit 1
+                fi
+                python3 "$FIXUP" susfs || {
+                  echo "::error::SUSFS fixup failed, remaining rejected hunks:"
                   dump_rej
                   exit 1
                 }
+              fi
+
+              # Sanity check: kernel-side SUSFS API must match what the KSU branch expects
+              echo "Kernel SUSFS: $(grep -m1 '^#define SUSFS_VERSION' include/linux/susfs.h)"
+              if grep -rqs "susfs_reorder_mnt_id" "$KSU_DIR" && ! grep -qs "susfs_reorder_mnt_id" fs/susfs.c; then
+                echo "::error::KSU branch '$KSU_BRANCH' expects a newer SUSFS API than this kernel's susfs.c. Use a KSU branch matching the kernel SUSFS version."
+                exit 1
               fi
 
               # 2) KernelSU side: apply patch unless the KSU branch already has susfs
@@ -289,7 +321,7 @@ jobs:
     - name: Upload kernel artifacts
       uses: actions/upload-artifact@v5
       with:
-        name: ${{ inputs.CUSTOM_ARTIFACT_NAME != '' && inputs.CUSTOM_ARTIFACT_NAME || format('Kernel-{0}', steps.buildKernel.outputs.buildDetails) }}
+        name: Kernel-${{ steps.buildKernel.outputs.buildDetails }}
         path: |
           kernel_root/out/arch/arm64/boot/Image.gz-dtb
           kernel_root/out/.config
@@ -298,7 +330,6 @@ jobs:
     - name: Upload AnyKernel3 artifacts
       uses: actions/upload-artifact@v5
       with:
-        name: ${{ inputs.CUSTOM_ARTIFACT_NAME != '' && format('{0}-AK3', inputs.CUSTOM_ARTIFACT_NAME) || format('AK3-{0}', steps.buildKernel.outputs.buildDetails) }}
-        path: |
-          kernel_root/AnyKernel3/*
+        name: AK3-${{ steps.buildKernel.outputs.buildDetails }}
+        path: kernel_root/AnyKernel3/*
         retention-days: 5
