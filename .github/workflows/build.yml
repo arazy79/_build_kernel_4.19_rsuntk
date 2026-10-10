@@ -69,9 +69,6 @@ jobs:
       BRANCH: ${{ github.event.inputs.BRANCH }}
       DEVICE_TARGET: ${{ github.event.inputs.DEVICE_TARGET }}
       
-      # >>> OPER INPUT CUSTOM ARTIFACT KE CORE <<<
-      CUSTOM_ARTIFACT_NAME: ${{ github.event.inputs.CUSTOM_ARTIFACT_NAME }}
-      
       ENABLE_KSU: ${{ github.event.inputs.ENABLE_KSU == 'true' }}
       KSU: ${{ github.event.inputs.KSU }}
       KSU_BRANCH: ${{ github.event.inputs.KSU_BRANCH }}
