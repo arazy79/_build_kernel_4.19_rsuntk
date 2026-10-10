@@ -1,0 +1,304 @@
+name: Workflow Core for Build Kernel
+on:
+  workflow_call:
+    inputs:
+      KERNEL_REPO:
+        description: 'Kernel URL repository'
+        type: string
+      BRANCH:
+        description: 'Kernel branch'
+        type: string
+      DEVICE_TARGET:
+        description: 'Device to build'
+        type: string
+      # >>> INPUT CUSTOM ARTIFACT <<<
+      CUSTOM_ARTIFACT_NAME:
+        description: 'Custom Artifact Name'
+        type: string
+        default: ''
+      ENABLE_KSU:
+        description: 'Enable KernelSU'
+        type: boolean
+        default: true
+      KSU:
+        description: 'Add KernelSU support'
+        default: "NULL"
+        type: string
+      KSU_BRANCH:
+        description: 'KernelSU branch'
+        type: string
+        default: 'main'
+      ENABLE_SUSFS:
+        description: 'Add SUSFS (needs KernelSU enabled)'
+        type: boolean
+        default: false
+      SUSFS_REPO:
+        description: 'SUSFS repository'
+        type: string
+        default: 'https://gitlab.com/simonpunk/susfs4ksu.git'
+      SUSFS_BRANCH:
+        description: 'SUSFS branch'
+        type: string
+        default: 'kernel-4.19'
+      UPDATE_TOOLCHAIN:
+        description: 'Update toolchain cache'
+        type: boolean
+        default: false
+      USE_GCC:
+        description: 'Use GCC for compilation instead of LLVM'
+        type: boolean
+        default: false
+      KCFLAGS_W:
+        description: 'Enable KCFLAGS=-w'
+        type: boolean
+        default: false
+      EXTRA_CONFIG:
+        description: 'Use Extra defconfig'
+        type: string
+        default: 'NULL'
+      NEED_UPLOAD:
+        description: 'Upload kernel to Telegram'
+        type: boolean
+        default: false
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Set Timezone
+      run: sudo ln -sf /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
+
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 1
+
+    - name: Setup SSH Keys
+      if: ${{ startsWith(inputs.KERNEL_REPO, 'git@github.com') && inputs.UPDATE_TOOLCHAIN != 'true' }}
+      uses: webfactory/ssh-agent@v0.5.4
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Clone kernel source
+      if: inputs.UPDATE_TOOLCHAIN != 'true'
+      run: git clone --depth=1 --single-branch -b ${{ inputs.BRANCH }} ${{ inputs.KERNEL_REPO }} kernel_root
+
+    - name: Get Compiler option
+      id: curr_compiler
+      run: |
+        if [[ "${{ inputs.USE_GCC }}" == "true" ]]; then
+          echo "tc_dir=$HOME/gcc-arm64" >> $GITHUB_OUTPUT
+          echo "cache_key=gcc-eva-arm64" >> $GITHUB_OUTPUT
+          echo "active_compiler=gcc" >> $GITHUB_OUTPUT
+        else
+          echo "tc_dir=$HOME/neutron-clang" >> $GITHUB_OUTPUT
+          echo "cache_key=llvm-24-neutron" >> $GITHUB_OUTPUT
+          echo "active_compiler=llvm" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Cache Toolchain
+      id: cache-toolchain
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.curr_compiler.outputs.tc_dir }}
+        key: ${{ steps.curr_compiler.outputs.cache_key }}
+
+    - name: Cache ccache
+      uses: actions/cache@v5
+      with:
+        path: ~/.ccache
+        key: ccache-kernel-${{ github.sha }}
+        restore-keys: ccache-kernel-
+
+    - name: Prepare Dependencies
+      run: chmod +x ./build.sh && bash ./build.sh --setup-deps
+
+    - name: Setup Build Environment
+      if: inputs.UPDATE_TOOLCHAIN != 'true'
+      id: buildKernel
+      run: |
+        cd kernel_root
+        gitsha1=$(git rev-parse --short HEAD)
+        CODENAME=$(cat ../codename)
+
+        echo "buildDetails=$CODENAME-${{ inputs.DEVICE_TARGET }}-$(date +%Y%m%d)_$(echo $gitsha1)-NIGHTLY" >> $GITHUB_OUTPUT
+        echo "currDate=$(date)" >> $GITHUB_OUTPUT
+
+    - name: Fetch Toolchains
+      if: ${{ steps.cache-toolchain.outputs.cache-hit != 'true' || inputs.UPDATE_TOOLCHAIN == 'true' }}
+      env:
+        UPDATE_TOOLCHAINS: ${{ inputs.UPDATE_TOOLCHAIN }}
+        COMP_OPTION: "${{ steps.curr_compiler.outputs.active_compiler }}"
+      run: bash ./build.sh --fetch-toolchains
+
+    - name: Build Kernel
+      env:
+        TG_UPLOAD: ${{ inputs.NEED_UPLOAD }}
+        TG_TOKEN: ${{ secrets.TG_TOKEN }}
+        TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        DEVICE_TARGET: ${{ inputs.DEVICE_TARGET }}
+        CI_ZIPNAME: "${{ steps.buildKernel.outputs.buildDetails }}.zip"
+        KCFLAGS_W: "${{ inputs.KCFLAGS_W }}"
+        EXTRA_CONFIG: "${{ inputs.EXTRA_CONFIG }}"
+        COMP_OPTION: "${{ steps.curr_compiler.outputs.active_compiler }}"
+        KSU_ENABLED: ${{ inputs.ENABLE_KSU }}
+        KSU_URL: ${{ inputs.KSU }}
+        KSU_BRANCH: ${{ inputs.KSU_BRANCH }}
+        SUSFS_ENABLED: ${{ inputs.ENABLE_SUSFS }}
+        SUSFS_REPO: ${{ inputs.SUSFS_REPO }}
+        SUSFS_BRANCH: ${{ inputs.SUSFS_BRANCH }}
+      run: |
+        dump_rej() {
+          for f in $(find . -name '*.rej'); do
+            echo "=============== $f"
+            cat "$f"
+          done
+        }
+
+        if [[ "${{ inputs.UPDATE_TOOLCHAIN }}" != "true" ]]; then
+          cd kernel_root
+          if [ ! -d ~/.ccache ]; then
+            mkdir -p ~/.ccache
+          fi
+          mkdir -p arch/arm64/configs/vendor/extra
+
+          # Handle KernelSU
+          if [[ "$KSU_ENABLED" == "true" && "$KSU_URL" != "NULL" ]]; then
+            echo "KernelSU: ON"
+            curl -LSs "$KSU_URL" | bash -s "$KSU_BRANCH"
+            case " $EXTRA_CONFIG " in
+              *"vendor/extra/ksu.config"*) ;;
+              *) export EXTRA_CONFIG="vendor/extra/ksu.config $EXTRA_CONFIG" ;;
+            esac
+
+            # Validate that the requested KSU branch really got checked out
+            KSU_DIR=$(find . -maxdepth 1 -type d -name 'KernelSU*' | head -1)
+            echo "KSU dir: $KSU_DIR"
+            if [ -z "$KSU_DIR" ]; then
+              echo "::error::KernelSU directory not found after setup"
+              exit 1
+            fi
+            TARGET=$(git -C "$KSU_DIR" rev-parse -q --verify "origin/${KSU_BRANCH}^{commit}" || git -C "$KSU_DIR" rev-parse -q --verify "${KSU_BRANCH}^{commit}" || true)
+            CURRENT=$(git -C "$KSU_DIR" rev-parse HEAD)
+            if [ -z "$TARGET" ]; then
+              echo "::error::KSU_BRANCH '$KSU_BRANCH' not found. Available remote branches:"
+              git -C "$KSU_DIR" branch -r
+              exit 1
+            fi
+            if [ "$TARGET" != "$CURRENT" ]; then
+              echo "::error::KSU did not switch to '$KSU_BRANCH' (silent fallback to default branch)"
+              exit 1
+            fi
+            echo "KSU checked out: $KSU_BRANCH ($CURRENT)"
+
+            # Manual hooks (needed for non-GKI 4.19)
+            HOOK_PATCH="$GITHUB_WORKSPACE/patches/ksu_manual_hooks_4.19.patch"
+            if [ -f "$HOOK_PATCH" ]; then
+              if patch -p1 -R --dry-run -s < "$HOOK_PATCH" > /dev/null 2>&1; then
+                echo "Manual hooks already applied, skipping"
+              else
+                patch -p1 --no-backup-if-mismatch < "$HOOK_PATCH" || {
+                  echo "::error::Manual hook patch failed, rejected hunks:"
+                  dump_rej
+                  exit 1
+                }
+              fi
+            else
+              echo "::warning::$HOOK_PATCH not found, building without manual hooks"
+            fi
+            printf '%s\n' 'CONFIG_KSU_MANUAL_HOOK=y' > arch/arm64/configs/vendor/extra/ksu_hook.config
+            case " $EXTRA_CONFIG " in
+              *"vendor/extra/ksu_hook.config"*) ;;
+              *) export EXTRA_CONFIG="vendor/extra/ksu_hook.config $EXTRA_CONFIG" ;;
+            esac
+
+            # Handle SUSFS (only when KernelSU is ON)
+            if [[ "$SUSFS_ENABLED" == "true" ]]; then
+              echo "SUSFS: ON"
+              git clone --depth=1 --single-branch -b "$SUSFS_BRANCH" "$SUSFS_REPO" ../susfs4ksu
+              SUSFS_PATCHES=../susfs4ksu/kernel_patches
+
+              # 1) Kernel side: copy susfs sources + apply kernel patch
+              if [ -f fs/susfs.c ]; then
+                echo "fs/susfs.c already exists, skipping kernel-side SUSFS patch"
+              else
+                cp -v $SUSFS_PATCHES/fs/* fs/
+                cp -v $SUSFS_PATCHES/include/linux/* include/linux/
+                patch -p1 --no-backup-if-mismatch < $SUSFS_PATCHES/50_add_susfs_in_kernel-4.19.patch || {
+                  echo "::error::Kernel SUSFS patch failed, rejected hunks:"
+                  dump_rej
+                  exit 1
+                }
+              fi
+
+              # 2) KernelSU side: apply patch unless the KSU branch already has susfs
+              if grep -rqi "susfs" "$KSU_DIR" 2>/dev/null; then
+                echo "KernelSU already contains SUSFS, skipping KSU-side patch"
+              else
+                (
+                  cd "$KSU_DIR"
+                  patch -p1 --no-backup-if-mismatch < ../$SUSFS_PATCHES/KernelSU/10_enable_susfs_for_ksu.patch || {
+                    echo "::error::KSU SUSFS patch failed, rejected hunks:"
+                    dump_rej
+                    exit 1
+                  }
+                )
+              fi
+
+              # 3) Kernel config for SUSFS
+              printf '%s\n' \
+                'CONFIG_KSU_SUSFS=y' \
+                'CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y' \
+                'CONFIG_KSU_SUSFS_SUS_PATH=y' \
+                'CONFIG_KSU_SUSFS_SUS_MOUNT=y' \
+                'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y' \
+                'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y' \
+                'CONFIG_KSU_SUSFS_SUS_KSTAT=y' \
+                'CONFIG_KSU_SUSFS_TRY_UMOUNT=y' \
+                'CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y' \
+                'CONFIG_KSU_SUSFS_SPOOF_UNAME=y' \
+                'CONFIG_KSU_SUSFS_ENABLE_LOG=y' \
+                'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y' \
+                'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y' \
+                'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y' \
+                'CONFIG_KSU_SUSFS_SUS_MAP=y' \
+                > arch/arm64/configs/vendor/extra/susfs.config
+              case " $EXTRA_CONFIG " in
+                *"vendor/extra/susfs.config"*) ;;
+                *) export EXTRA_CONFIG="vendor/extra/susfs.config $EXTRA_CONFIG" ;;
+              esac
+            else
+              echo "SUSFS: OFF"
+            fi
+          else
+            echo "KernelSU: OFF"
+            export EXTRA_CONFIG="${EXTRA_CONFIG//vendor\/extra\/ksu.config/}"
+          fi
+
+          bash ../build.sh
+        fi
+
+    - name: Upload patch rejects
+      if: failure()
+      uses: actions/upload-artifact@v5
+      with:
+        name: patch-rejects
+        path: kernel_root/**/*.rej
+        if-no-files-found: ignore
+        retention-days: 3
+
+    - name: Upload kernel artifacts
+      uses: actions/upload-artifact@v5
+      with:
+        name: ${{ inputs.CUSTOM_ARTIFACT_NAME != '' && inputs.CUSTOM_ARTIFACT_NAME || format('Kernel-{0}', steps.buildKernel.outputs.buildDetails) }}
+        path: |
+          kernel_root/out/arch/arm64/boot/Image.gz-dtb
+          kernel_root/out/.config
+        retention-days: 5
+
+    - name: Upload AnyKernel3 artifacts
+      uses: actions/upload-artifact@v5
+      with:
+        name: ${{ inputs.CUSTOM_ARTIFACT_NAME != '' && format('{0}-AK3', inputs.CUSTOM_ARTIFACT_NAME) || format('AK3-{0}', steps.buildKernel.outputs.buildDetails) }}
+        path: |
+          kernel_root/AnyKernel3/*
+        retention-days: 5
