@@ -16,12 +16,6 @@ on:
         type: choice
         options: [X01BD, X00TD]
       
-      # >>> INPUT BARU: CUSTOM ARTIFACT NAME <<<
-      CUSTOM_ARTIFACT_NAME:
-        description: 'Nama Custom Artifact (Kosongkan untuk pakai default)'
-        required: false
-        type: string
-      
       ENABLE_KSU:
         description: 'Build with KernelSU'
         type: boolean
